@@ -1,0 +1,155 @@
+version: v0.3
+
+
+listeners:
+- name: http-listener
+  address: 0.0.0.0
+  port: 8899
+  protocol: http
+
+
+providers:
+  models:
+  - name: qwen2.5:3b
+    backend_refs:
+    - name: endpoint1
+      endpoint: host.docker.internal:8002
+      protocol: http
+      weight: 1
+  defaults:
+    default_model: qwen2.5:3b
+
+
+
+routing:
+  signals:
+    domains:
+    - name: strict_reasoning
+      description: Math and strict logic reasoning
+      categories:
+      - deepseek
+    - name: code_generation
+      description: Code generation, fix, explain
+      categories:
+      - doubao-code
+    - name: short_answer
+      description: Single-fact, short answer queries
+      categories:
+      - doubao-lite
+    - name: general_pro
+      description: Default fallback, explanation, creative, translation
+      categories:
+      - doubao-pro
+  decisions:
+  - name: route_deepseek
+    description: Route math and strict reasoning to DeepSeek
+    priority: 160
+    rules:
+      operator: OR
+      conditions:
+      - type: domain
+        name: strict_reasoning
+    modelRefs:
+    - model: qwen2.5:3b
+      use_reasoning: true
+    plugins:
+    - type: system_prompt
+      configuration:
+        system_prompt: You are an expert in mathematics and algorithmic reasoning.
+          Provide step-by-step strict logical planning.
+  - name: route_code
+    description: Route coding questions to Doubao Code
+    priority: 150
+    rules:
+      operator: OR
+      conditions:
+      - type: domain
+        name: code_generation
+    modelRefs:
+    - model: qwen2.5:3b
+      use_reasoning: false
+    plugins:
+    - type: system_prompt
+      configuration:
+        system_prompt: You are a senior software engineer. Output clean, efficient,
+          and well-explained code.
+  - name: route_lite
+    description: Route simple factual queries to Doubao Lite
+    priority: 140
+    rules:
+      operator: OR
+      conditions:
+      - type: domain
+        name: short_answer
+    modelRefs:
+    - model: qwen2.5:3b
+      use_reasoning: false
+    plugins:
+    - type: system_prompt
+      configuration:
+        system_prompt: Provide a very brief, single-sentence factual answer or a simple
+          greeting.
+  - name: route_pro
+    description: Route complex general tasks to Doubao Pro
+    priority: 130
+    rules:
+      operator: OR
+      conditions:
+      - type: domain
+        name: general_pro
+    modelRefs:
+    - model: qwen2.5:3b
+      use_reasoning: false
+    plugins:
+    - type: system_prompt
+      configuration:
+        system_prompt: You are a helpful AI assistant. Provide detailed explanations,
+          creative text, or translations as requested.
+  - name: default-route
+    description: Catch-all route using Doubao Pro as default
+    priority: 50
+    rules:
+      operator: AND
+      conditions: []
+    modelRefs:
+    - model: qwen2.5:3b
+      use_reasoning: false
+  modelCards:
+  - name: qwen2.5:3b
+global:
+  model_catalog:
+    embeddings:
+      semantic:
+        mmbert_model_path: models/mom-embedding-ultra
+        use_cpu: true
+        hnsw_config:
+          model_type: mmbert
+          preload_embeddings: true
+          target_dimension: 768
+          target_layer: 22
+          enable_soft_matching: true
+          min_score_threshold: 0.5
+    modules:
+      classifier:
+        domain:
+          model_id: models/mmbert32k-intent-classifier-merged
+          use_mmbert_32k: true
+          threshold: 0.5
+          use_cpu: true
+          category_mapping_path: models/mmbert32k-intent-classifier-merged/category_mapping.json
+          model_ref: domain_classifier
+        pii:
+          model_id: models/mmbert32k-pii-detector-merged
+          use_mmbert_32k: true
+          threshold: 0.9
+          use_cpu: true
+          pii_mapping_path: models/mmbert32k-pii-detector-merged/pii_type_mapping.json
+          model_ref: pii_classifier
+        preference:
+          use_contrastive: true
+          embedding_model: mmbert
+      hallucination_mitigation: {}
+  router: {}
+  services: {}
+  stores: {}
+  integrations: {}
